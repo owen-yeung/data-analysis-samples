@@ -1,0 +1,240 @@
+---
+title: "Owen Yeung Data Task Code"
+output: pdf_document
+---
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Import Libraries
+library(ggplot2)
+library(dplyr)
+library(haven)
+library(stargazer)
+library(lmtest)
+library(MASS)
+```
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Import Data
+ra_sample_data <- read_dta("C:/Users/owen_/Downloads/ra_sample_data.dta")
+```
+
+# 1
+```{r,results='hide'}
+# Check income of big spender
+# ra_sample_data %>% filter(expend_total == 100000) %>% select(income)
+# Drop age 145 and 75 years of educ, 100000 and NA expenditure 
+ra_sample_data <- ra_sample_data %>%
+  filter(age < 110, education < 70, expend_total < 100000)
+```
+
+# 2
+```{r,results='hide'}
+table(ra_sample_data$income)
+table(ra_sample_data$gender)
+```
+
+# 3
+```{r,results='hide'}
+summary(ra_sample_data$age)
+sd(ra_sample_data$age)
+```
+
+# 4
+
+```{r,results='hide', fig.show='hide'}
+summary(ra_sample_data$expend_total)
+sd(ra_sample_data$expend_total, na.rm = TRUE)
+
+# Create variable for lottery expenditure as share of monthly income
+ra_sample_data <- ra_sample_data %>%
+  # Monthly household income = Annual household income in dollars divided by 12 
+  mutate(expend_share = expend_total / (income * 1000 / 12))
+
+summary(ra_sample_data$expend_share)
+sd(ra_sample_data$expend_share, na.rm = TRUE)
+
+# Plot histogram
+ggplot(ra_sample_data, aes(x=expend_total)) +
+  geom_histogram(bins = 200) +
+  labs(title = "Histogram of Monthly Lottery Expenditures (All observations)",
+       x = "Monthly Lottery Expenditure", y = "Frequency")
+
+# Subset data to remove extremely high spenders
+sub_1000 <- ra_sample_data %>%
+  filter(expend_total <= 1000)
+
+sub_500 <- ra_sample_data %>%
+  filter(expend_total <= 500)
+
+sub_100 <- ra_sample_data %>%
+  filter(expend_total <= 100)
+
+# Check number of entries removed
+table(ra_sample_data$expend_total)
+
+# Check number of entries removed for sub_100
+ra_sample_data %>% filter(expend_total > 100) %>% summarise(count = n())
+
+#Plot histograms for subsets
+ggplot(sub_1000, aes(x=expend_total)) +
+  geom_histogram(bins = 200) +
+  labs(title = "Histogram of Monthly Lottery Expenditures ($1000 or less)",
+       x = "Monthly Lottery Expenditure", y = "Frequency")
+
+ggplot(sub_500, aes(x=expend_total)) +
+  geom_histogram(bins = 200) +
+  labs(title = "Histogram of Monthly Lottery Expenditures ($500 or less)",
+       x = "Monthly Lottery Expenditure", y = "Frequency")
+
+ggplot(sub_100, aes(x=expend_total)) +
+  geom_histogram(bins = 100) +
+  labs(title = "Histogram of Monthly Lottery Expenditures ($100 or less)",
+       x = "Monthly Lottery Expenditure", y = "Frequency")
+
+```
+
+# 5
+
+```{r,results='hide'}
+# Create education dummies
+ra_sample_data <- ra_sample_data %>%
+  mutate(
+    education_5 = education >= 5,
+    education_10 = education >= 10,
+    education_15 = education >= 15,
+    education_20 = education >= 20
+  )
+```
+
+# 6
+
+```{r,results='hide', fig.show='hide'}
+# Regress expenditure increase on income increase
+expend_delta_on_income_delta <- lm(expend_delta ~ income_delta, data = ra_sample_data)
+# See results
+summary(expend_delta_on_income_delta)
+
+# Look at distribution of expected income effect
+table(ra_sample_data$income_effects_delta_pct)
+hist(ra_sample_data$income_effects_delta_pct, breaks = 50)
+mean(ra_sample_data$income_effects_delta_pct, na.rm = TRUE)
+median(ra_sample_data$income_effects_delta_pct, na.rm = TRUE)
+# Check how many missing values removed
+sum(is.na(ra_sample_data$income_effects_delta_pct))
+```
+# 7
+
+```{r,results='hide'}
+# Create male dummies and state fixed effect variable
+ra_sample_data <- ra_sample_data %>%
+  mutate(male = as.numeric(gender == 1), state_factor = factor(state))
+
+# Regress expenditure on income with controls and state FEs
+expend_total_on_income <- lm(expend_total ~ income + 
+                               age + black + hispanic + white + male + 
+                               marital + urban + employment + religion +
+                               education + ideology + 
+                               state_factor - 1, data = ra_sample_data)
+
+# Test robustness to removing outliers
+sub_500 <- ra_sample_data %>%
+  filter(expend_total <= 500)
+
+# Same Regression with outliers removed
+sub_500_expend_total_on_income <- rlm(expend_total ~ income + 
+                               age + black + hispanic + white + male + 
+                               marital + urban + employment + religion +
+                               education + ideology + 
+                               state_factor - 1, data = sub_500)
+
+# Regression results in LATEX
+stargazer(expend_total_on_income, 
+          sub_500_expend_total_on_income,
+          title = "Regression Results (With State Effects)",
+          align = TRUE,
+          no.space = TRUE,
+          dep.var.labels="Monthly Lottery Expenditure",
+          keep = c("income", "age", "black", "hispanic", "white", "male", 
+                   "marital", "urban", "employment", "religion", 
+                   "education", "ideology"),
+          covariate.labels=c(
+            "Income", "Age", "Black", "Hispanic", "White", "Male",
+                   "Married", "Urban", "Employed", "Religious",
+                   "Years of Education", "Conservative"
+          )
+)
+          
+# BP test for heteroskedasticity
+bptest(expend_total_on_income)
+bptest(sub_500_expend_total_on_income)
+```
+
+# 8
+
+```{r,results='hide'}
+# Regression models on preference and bias proxies, as before
+expend_total_on_behavioral <- lm(expend_total ~ 
+                                   risk_seeking +
+                                   risk_aversion +
+                                   seems_fun +
+                                   enjoy_thinking +
+                                   self_control +
+                                   financial_literacy +
+                                   financial_numeracy +
+                                   gamblers_fallacy +
+                                   non_belief_lln +
+                                   ev_miscalculation +
+                                   overconfidence +
+                                   lottery_payout +
+                                   happiness +
+                              #Controls + income:
+                               income + age + black + hispanic + white + male + 
+                               marital + urban + employment + religion +
+                               education + ideology + 
+                               state_factor - 1, data = ra_sample_data)
+# Outliers removed regression
+sub_500_expend_total_on_behavioral <- rlm(expend_total ~ 
+                                   risk_seeking +
+                                   risk_aversion +
+                                   seems_fun +
+                                   enjoy_thinking +
+                                   self_control +
+                                   financial_literacy +
+                                   financial_numeracy +
+                                   gamblers_fallacy +
+                                   non_belief_lln +
+                                   ev_miscalculation +
+                                   overconfidence +
+                                   lottery_payout +
+                                   happiness +
+                              #Controls + income:
+                               income + age + black + hispanic + white + male + 
+                               marital + urban + employment + religion +
+                               education + ideology + 
+                               state_factor - 1, data = sub_500)
+
+# BP test for heteroskedasticity
+bptest(expend_total_on_behavioral)
+bptest(sub_500_expend_total_on_behavioral)
+
+# Regression results in LATEX
+stargazer(expend_total_on_behavioral, 
+          sub_500_expend_total_on_behavioral,
+          title = "Regression Results (With State Fixed Effects)",
+          align = TRUE,
+          no.space = TRUE,
+          dep.var.labels="Monthly Lottery Expenditure",
+          keep = c("risk_seeking", "risk_aversion", "seems_fun", 
+                   "enjoy_thinking", "self_control", "financial_literacy", 
+                   "financial_numeracy", "gamblers_fallacy", "non_belief_lln", 
+                   "ev_miscalculation", "overconfidence", 
+                   "lottery_payout", "happiness"),
+          # omit.stat=c("LL","ser","f"),
+          covariate.labels=c("Risk Aversion (General)", "Risk Aversion (Financial)", "Lottery Seems Fun", 
+                   "Enjoys Thinking About Winning", "Can't Control Self", "Financial Literacy", 
+                   "Financial Numeracy", "Gamblers Fallacy", "Non-belief in LLN", 
+                   "EV Miscalculation", "Overconfidence in Winning Lottery", 
+                   "Prize Share of Sales", "Happiness From Lottery")
+)
+```
+
